@@ -1,0 +1,424 @@
+---
+title: "PRÁCTICA 2 - TIPOLOGÍA Y CICLO DE VIDA DE LOS DATOS"
+author: "Autores: Barco Sousa, José Manuel y Velázquez Carricondo, Juan Antonio"
+date: "Junio 2022"
+output:
+  pdf_document: default
+  html_notebook: default
+---
+
+******
+# DESCRIPCIÓN DEL DATASET
+******
+Para la realización de esta práctica vamos a utilizar el dataset propuesto en el enunciado de la misma: Titanic: Machine Learning from Disaster (https://www.kaggle.com/c/titanic)
+En la web referida hay disponibles tres archivos:
+
+- train: con un juego de datos con 12 variables
+
+- test: con un juego de datos de 11 variables. Omite la correspondiente a la información de superviviencia del pasajero ya que la competición propuesta en la web se basa en predecir la superviviencia de los pasajeros recogidos en este archivo.
+
+- gender_submission: para informar de las predicciones realizadas.
+
+Así pues, el archivo que vamos a utilizar para la realización de esta práctica es train.csv, test.csv no nos es útil porque no nos permitirá chequear la precisión de las predicciones realizadas.
+
+## OBJETIVO
+
+El objetivo que se plantea es determinar qué factores son los que tienen más incidencia en la probabilidad de supervivencia de los pasajeros
+
+## LECTURA DEL ARCHIVO
+
+```{r}
+data<-read.csv("./train.csv",header=T,sep=",")
+attach(data)
+```
+
+Vamos a realizar una primera aproximación al dataset.
+
+```{r}
+str(data)
+```
+
+Como podemos ver, contiene 891 registros de 12 variables.
+
+Atendiendo a la información mostrada y la diccionario que se proporciona en la web, las variables recogen la siguiente información:
+
+- PassengerId: corresponde con la identificación del pasajero/registro en el dataset
+
+- Survived: recoge la información acerca de si el pasajero sobrevivió (1) o no (0) al naufragio
+
+- PClass: Aunque es de tipo int es una variable categórica que recoge información acerca de la clase en que se embarcó el pasajero
+
+- Name:recoge el nombre del pasajero
+
+- Sex: recoge el sexo del pasajero
+
+- Age:Recoge la edad del pasajero
+
+- SibSp: Recoje información acerca del número hermanos y/o cónyuges del pasajero a bordo
+
+- Parch: Recoje información acerca del número padres o hijos del pasajero a bordo
+
+- Ticket: Recoje el número de ticket del pasajero
+
+- Fare: Recoje el importe correspondiente a la tarifa abonada por el pasajero
+
+- Cabin: Recoje el número de camarote del pasajero
+
+- Embarked: Recoje el puerto de embarque del pasajero
+
+
+******
+# LIMPIEZA Y TRANSFORMACIÓN DE DATOS
+******
+
+## VALORES PERDIDOS
+
+Vamos a comenzar por ver si existen valores perdidos en el dataset
+
+```{r}
+colSums(is.na(data))
+```
+```{r}
+colSums(data=="")
+```
+Por la información obtenida, podemos ver que hay 
+
+- 177 registros perdidos en el campo Age.
+- 687 en el campo Cabin
+- 2 en el campo Embarked
+
+### Tratamiento de los valores perdidos
+
+Dado el número de valores faltantes, creemos que lo mejor es prescindir de la variable Cabin.
+Quizás los números (pares o impares) o la letra que precede al número nos podría dar alguna información acerca de en qué lado del barco o en qué piso se encontraba la cabina, por si pudiese tener relación con la supervivencia, pero al disponer de tan pocos registros (204 de 891) con esta información creemos que es mejor prescindir de esta variable en comparación con la opción de no utilizar los registros con el valor perdido.
+
+```{r}
+library(dplyr)
+data<-select(data, -Cabin)
+```
+
+Por lo que respecta a la columna Age, por la información recogida en la web donde estaba el archivo del dataset, sabemos que ya hay valores estimados, son aquellos que contienen 0.5
+
+```{r}
+table(data$Age)
+
+```
+
+Como podemos ver, la estimación no es siempre la misma, por lo que descartamos que sea algún valor central de la muestra.
+
+Para hacer la imputación de valores perdidos en esta variable, utilizaremos la función mice, a la que indicamos las variables a tomar en consideración para realizar las estimaciones y que nos permite elegir el método para estimar el valor a imputar: "mean" para utilizar la media,  "norm.boot" para regresión lineal usando bootstrap, "cart" para utilizar árboles de decisión. "rf" para utilizar randomforest, etc...
+
+Tras la aplicación de la función, sustituimos los valores NA de Age por los estimados con mice.
+
+```{r}
+library(mice)
+para_imiputar <- mice(data%>%select(Survived, Pclass, SibSp, Parch, Age), method = "cart")
+imputacion <- mice::complete(para_imiputar)
+data<-data%>%mutate(Age =imputacion$Age)
+colSums(is.na(data))
+
+```
+
+Como podemos comprobar, ya no hay valores perdidos en Age
+
+### Variables a desechar
+
+Creemos también que hay otra serie de variables que no tienen relación con la supervivencia. Estas son:
+
+- PassengerId
+
+- Name
+
+- Embarked
+
+- Ticket
+
+No parece que ni la identidad del pasajero, ni el puerto donde haya embarcado, ni su número de ticket influyan en su probabilidad de supervivencia.
+
+```{r}
+data<-select(data, -PassengerId, -Name, -Embarked, -Ticket)
+```
+
+## VALORES EXTREMOS
+
+Dados los campos disponibles en el dataset, sólo tiene sentido buscar valores extremos en las siguientes variables, que son la numéricas:
+
+- Age
+
+- SibSP
+
+- Parch
+
+- Fare
+
+Vamos a ver los boxplots correspondientes y a identificar los valores extremos de estos campos
+
+```{r}
+boxplot(data$Age)
+boxplot.stats(data$Age)$out
+```
+
+Como puede apreciarse, estos valores extremos, pueden ser valores lícitos, ya que son edades posibles.
+
+```{r}
+boxplot(data$SibSp)
+boxplot.stats(data$SibSp)$out
+```
+
+Como puede apreciarse, estos valores extremos, pueden ser valores lícitos. La mayoría del pasaje tenía a bordo ningún o 1 hermano o cónyuge, pero puede ser que familias numerosas se embarcasen en un viaje familiar dando como resultado que tuviesen en el barco 8 familiares entre hermanos o cónyujes
+
+```{r}
+boxplot(data$Parch)
+boxplot.stats(data$Parch)$out
+```
+
+Como puede apreciarse, estos valores extremos, pueden ser valores lícitos. La reflexión sobre la anterior variable hace que pueda pensarse en pasajeros con 5 0 6 familiares a bordo, en este caso o hijos y padres.
+
+```{r}
+boxplot(data$Fare)
+boxplot.stats(data$Fare)$out
+```
+
+Como puede apreciarse, estos valores extremos, pueden ser valores lícitos. La mayoría de los pasajeros pagaron tarifas más baratas, pero no es irracional pensar que una minoría de pasajeros pudieran pagar tarifas sensiblemente más altas por un servicio diferencial.
+
+Por otra parte, también podría ser que en Fare se recogiera el importe total pagado por el pasaje de un grupo de personas, en aquellos casos en que viajan a bordo varios miembros de una misma familia.
+
+Vamos a intentar ver a través de una visualización cual es el caso.
+
+Para ello, primero, creamos una nueva variable con la suma de los familiares a bordo de cada pasajero.
+
+A continuación, utilizando sólo los registros correspondientes a outliers de Fare, relacionamos clase y número de miembros de la familia.
+
+```{r}
+data$fam=data$SibSp+data$Parch
+barplot(table(
+  data$fam[data$Fare>min(boxplot.stats(data$Fare)$out)],
+  data$Pclass[data$Fare>min(boxplot.stats(data$Fare)$out)]),
+  col = c("red", "green", "yellow", "pink", "white", "brown", "blue", "orange", "purple", "grey"),
+  main="outliers Fare: clase vs miembros familia",
+  legend.text = rownames(
+    table(data$fam[data$Fare>min(boxplot.stats(data$Fare)$out)],
+    data$Pclass[data$Fare>min(boxplot.stats(data$Fare)$out)]))
+  )
+
+```
+Como podemos apreciar en los gráficos, parece que puede ser la primera opción expuesta, ya que esos valores más altos de Fare corresponden mayoritariamente con billetes de primera clase.
+
+Además, en el gráfico vemos que la mayoría de esos valores, corresponden a familias de entre 0 y 2 miembros que viajaban en primera clase. 
+
+Así pues, no parece probable que el importe responda al abono total por los pasajes de todos los miembros de una misma familia. Sino más bien a que, como dijimos, correspondan a tarifas más altas por algún servicio diferencial de algún tipo.
+
+
+## TRANSFORMACIÓN DE DATOS
+
+Vamos a crear una nueva variable con la discretización de la variable Age
+
+```{r}
+data$Edad<-cut(data$Age, 
+               breaks = c(0,16,36,60,max(data$Age)+1), 
+               labels = c("infancia", "juventud", "madurez", "vejez"))
+```
+
+Ahora vamos a crear una nueva variable para saber con quien viaja cada pasajero.
+
+```{r}
+data<-mutate(data, Familia=case_when(
+      SibSp==0 & Parch==0 ~ "solo", 
+      SibSp==0 & Parch>0 ~ "padres-hijos",
+      SibSp>0 & Parch==0 ~ "hermanos-pareja",
+      SibSp>0 & Parch>0 ~ "padres-hijos \n y \n hermanos-pareja"))
+```
+
+
+******
+# ANÁLISIS DE LOS DATOS
+******
+
+Antes de comenzar con los análisis, vamos a utilizar las últimas transformaciones realizadas para hacer una inspección visual de las posibles relaciones de las variables que tenemos con la supervivencia
+
+
+```{r}
+par(mfrow = c(2,2))
+barplot(table(data$Survived, data$Pclass), 
+        col=c("red", "green"), 
+        main="supervivencia/muerte por clase",
+        legend.text = rownames(table(data$Survived, data$Pclass)))
+barplot(table(data$Survived, data$Edad), 
+        col=c("red", "green"), 
+         main="supervivencia/muerte por edad",
+        legend.text = rownames(table(data$Survived, data$Edad)))
+barplot(table(data$Survived, data$Sex), 
+        col=c("red", "green"), 
+         main="supervivencia/muerte por sexo",
+        legend.text = rownames(table(data$Survived, data$Sex)))
+barplot(table(data$Survived, data$Familia), 
+        col=c("red", "green"), 
+         main="supervivencia/muerte por familia a bordo",
+        legend.text =rownames(table(data$Survived, data$Familia)),
+        las=2)
+```
+En esta primera aproximación visual, ya podemos ver que:
+
+- la supervivencia se reduce en función de la clase, proporcionalmente, sobrevivieron muchos más pasajeros de primera de que tercera
+
+- proporcionalmente, la supervivencia también fue mayor entre los pasajeros más jóvenes
+
+- proporcionalmente, también sobrevivieron más las mujeres que los hombres
+
+- proporcionalmente, la supervivencia fue sensiblemente menor entre los que viajaban sólos y mayor entre los que viajaban con sus padres y/o hijos
+
+## COMPROBACIÓN DE NORMALIDAD
+
+Vamos a comprobar la normalidad de las variables numéricas que tenemos
+
+```{r}
+shapiro.test(data$Age)
+shapiro.test(data$SibSp)
+shapiro.test(data$Parch)
+shapiro.test(data$Fare)
+```
+
+Cómo podemos observar por los p-values (menores a 0,05), ninguna de ellas cumple la condición de normalidad
+
+## COMPROBACIÓN DE HOMOGENEIDAD DE LA VARIANZA
+
+Vamos ahora a comprobar la homogeneidad de la varianza de esas mismas varibles
+
+```{r}
+fligner.test(Age ~ SibSp, data = data)
+fligner.test(Age ~ Parch, data = data)
+fligner.test(Age ~ Fare, data = data)
+fligner.test(SibSp ~ Parch, data = data)
+fligner.test(SibSp ~ Fare, data = data)
+fligner.test(Parch ~ Fare, data = data)
+```
+
+En todos los casos el p-value es inferior a 0,05 por lo que concluimos que las varianzas no son homogéneas
+
+## PRUBEBAS ESTADÍSTICAS
+
+### chi square test
+
+En primer lugar vamos a confirmar si las afirmaciones que hicimos a la vista de los gráficos al comienzo de este apartado son ciertas, es decir, si hay relación entre la clase, el sexo, la edad y la Familia a bordo con la supervivencia
+
+```{r}
+chisq.test(data$Survived, data$Pclass)
+chisq.test(data$Survived, data$Sex)
+chisq.test(data$Survived, data$Edad)
+chisq.test(data$Survived, data$Familia)
+```
+Como puede deducirse de los p-values, en todos los casos el test es significativo, es decir, las variables están correlacionadas.
+
+### Modelo lineal
+Ahora vamos a intentar hacer predicciones. 
+
+Inicialmente utilizamos un modelo lineal. 
+
+En primer lugar, dividiremos nuestros datos para entrenamiento y test
+
+```{r}
+library(caret)
+set.seed(987654321)
+trainIndex=createDataPartition(data$Survived, p=0.80)$Resample1
+
+data_train=data[trainIndex, ]
+data_test=data[-trainIndex, ]
+```
+
+Ahora Vamos a entrenar un modelo para, después, hacer predicciones sobre los datos de test
+
+```{r}
+clasificadorRL <- glm(Survived~Age+SibSp+Parch+Fare+Pclass+Sex, family = binomial, data = data_train)
+print("************MODELO************")
+summary(clasificadorRL)
+pred_test <- predict(clasificadorRL, type = 'response', newdata = data_test)
+pred_test <- ifelse(pred_test>0.5, 1, 0)
+pred_test <- factor(pred_test, levels = c("0", "1"))
+matrizConfusion <- table(data_test$Survived, pred_test)
+print("************MATRIZ DE CONFUSION************")
+matrizConfusion
+print(paste("porcetaje de casos bien clasificados: ", 100*(matrizConfusion[1,1]+matrizConfusion[2,2])/sum(matrizConfusion)))
+
+```
+
+Como se pude ver, el modelos estimado el valor de la constante (intercept) sumado a cada una de las variable multiplicada por el parámetro estimado por el modelo (Estimate). Como se puede ver, salvo Fare, todos los parámetros son negativos. Hay que señalar que las variables Parch y Fare no son significativas.
+
+Como también podemos ver, el modelo clasifica bien el 78% de los casos, que no es un porcentaje demasiado bueno.
+
+### Árbol de decisión
+
+Vamos, ahora, a probar con un árbol de decisión. 
+
+Para ello partiremos nuestros datos de entrenamiento y test para tener por un lado la variable objetivo (la supervivencia y, por el otro, el resto de variables).
+
+A continuación, entrenamos el modelo y usamos los datos de test para predecir y calcular el porcentaje de clasificaciones correctas.
+
+```{r}
+library(C50)
+data_train_x<-select(data_train, -Survived, -Familia, -Edad)
+data_train_y<-as.factor(data_train$Survived)
+data_test_x<-select(data_test, -Survived, -Familia, -Edad)
+data_test_y<-as.factor(data_test$Survived)
+model <- C50::C5.0(data_train_x, data_train_y,rules=TRUE )
+predicted_model <- predict( model, data_test_x, type="class" )
+matrizConfusion2 <- table(data_test_y, predicted_model)
+matrizConfusion2
+print(paste("porcetaje de casos bien clasificados: ", 100*(matrizConfusion2[1,1]+matrizConfusion2[2,2])/sum(matrizConfusion2)))
+
+```
+Como se puede ver, el modelo generado con el árbol de decisión mejora el anterior. Este clasifica clasifica correctamente el 80% de los casos.
+
+En el siguiente listado vamos a ver el porcentaje de observaciones de entrenamiento que caen en todos los nodos generados tras una división en el que ha participado la variable
+
+```{r}
+C5imp(model, metric = "usage")
+```
+Cómo podemos ver bajo la variable Sex, caen el 84,43% de los casos. Bajo decisiones que implican a la variable Age caen el 79,94% de los caos. Sobre PClass caen el 67,46 de los casos y bajo SibSp el 57,22%.
+
+Como pasaba con el modelo anteior, Parch y Fare no son significativas, ningún caso cae bajo una decisión en la que estuviesen implicadas.
+
+Ahora vamos a ver el porcentaje de decisiones en que participa cada variable
+
+
+```{r}
+C5imp(model, metric = "splits")
+```
+
+A mayores, podemos también ver las reglas generadas por el modelo
+
+```{r}
+summary(model)
+```
+En cuanto a estas reglas vemos que:
+
+- según la primera, viajando en tercera clase y siendo mayor de 38, con una validez del 89,5%, la clasificación será que muere (clase 0)
+
+- según la segunda, siendo hombre mayor de 13 años, con una validez del 84,5%. la clasificación será muere
+
+...
+
+- según la regla 4, viajando en primera o segunda clase y siendo mujer, con una validez del 95,3%. la clasificación será spbrevive
+
+...
+
+******
+# CONCLUSIONES
+******
+
+A lo largo del desarrollo de la práctica
+
+* en primer lugar, hemos intentado, ir conociendo los datos: las variables que incluía el dataset y sus tipos
+
+* hemos aproximado también a los valores que incluía cada variables y hemos detectado valores problemáticos (perdidos y outliers) para decidir que hacemos con ellos. De hecho hemos desechado alguna variable por contener perdidos y hemos imputado valores en otra de ellas. Respecto a los outliers, los hemos identificado e intentado comprender, si eran lícitos o no, intentado en un caso en concreto, el de Fare, buscar una explicación a sus valores.
+
+* hemos creado nuevas variables a partir de las existentes para facilitar la tarea de encontrar relaciones entre ellas a través de la visualización de los datos.
+
+* además de la visualización, hemos realizado test estadísticos para verificar si confirmaban las conclusiones que sacamos del análisis de los gráficos.
+
+* finalmente, hemos intentado hacer predicciones utilizando dos herramientas diferentes: glm, ya que los datos no pasaron las pruebas de normalidad y homocedasticidad y mediante árboles de decisión.
+
+En el caso de la predicción hemos visto que, para estos datos, los dos métodos alcanzan porcentajes de acierto muy similares y que de ambos se sacan conclusiones muy parecidas:
+
+* hay variables que no tienen relación con la superviviencia. El modelo glm les asigna 0 como valor del estimador a Parch y Fare, además de mostrar que no son estadísticamente significativas. En el caso del árbol de decisión no son utilizadas en ningún corte.
+
+* Los dos modelos identifican como variables relacionadas con la supervivencia la clase, el sexo (el sexo masculino relacionado negativamente con la supervivencia), la edad y SibSp, aunque a la vista de los estimados y los cortes en que son utlizados y los casos que caen bajo cortes en los que intervienen, difieren un poco en el orden de importancia.
