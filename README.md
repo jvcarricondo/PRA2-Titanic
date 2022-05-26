@@ -21,6 +21,6 @@ Utilizar este código es muy sencillo, se tienen que seguir los siguientes pasos
 2. En el fichero **preview_pra2.Rmd** revisar si la ruta del conjunto de datos **train.csv** es correcta.
 3. Ya puedes lanzar el fichero y obtener los resultados.
 
-## Datos obtenidos
+## Resultados obtenidos
 
 Se obtiene un pdf con el nombre **preview_pra2.pdf** donde se detallan los resultados obtenidos.
